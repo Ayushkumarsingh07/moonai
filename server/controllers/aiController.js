@@ -5,8 +5,7 @@ import FormData from "form-data";
 import {v2 as cloudinary} from 'cloudinary'
 import sql from '../configs/db.js';
 import fs from 'fs';
-import * as pdfPkg from 'pdf-parse';
-const pdf = pdfPkg.default || pdfPkg;
+import pdf from 'pdf-parse';
 
 
 const AI = new OpenAI({
@@ -145,7 +144,7 @@ export const removeImageBackground = async (req, res) => {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
         }
 
-        const { secure_url } = await cloudinary.uploader.upload(image.path, {
+        const { secure_url } = await cloudinary.uploader.upload(image.Buffer, {
             transformation: [
                 {
                     effect: "background_removal",
@@ -175,7 +174,7 @@ export const removeImageObject = async (req, res) => {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
         }
 
-        const { public_id } = await cloudinary.uploader.upload(image.path)
+        const { public_id } = await cloudinary.uploader.upload(image.Buffer)
 
         const imageUrl = cloudinary.url(public_id, {
             transformation:[{effect: `gen_remove:${object}`}],
@@ -206,9 +205,9 @@ export const reviewResume = async (req, res) => {
         return res.json({success: false, message: 'Resume size should be less than 5MB'})
        }
 
-       const dataBuffer = fs.readFileSync(resume.path);
+       const dataBuffer = fs.readFileSync(resume.Buffer);
 
-       const pdfData = await pdf(dataBuffer);
+       const pdfData = await pdf(resume.Buffer);
 
        const prompt = `Review the following resume and provide feedback on how to improve it. Highlight any areas that need improvement and suggest specific changes. Resume content: Resume Content:\n\n${pdfData.text}`
 
