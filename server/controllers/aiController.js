@@ -5,7 +5,9 @@ import FormData from "form-data";
 import {v2 as cloudinary} from 'cloudinary'
 import sql from '../configs/db.js';
 import fs from 'fs';
-import pdf from 'pdf-parse';
+// Import the parser implementation directly. The package entry point runs its
+// bundled test fixture when loaded from an ES module environment.
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 
 
 const AI = new OpenAI({
