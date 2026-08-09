@@ -4,7 +4,6 @@ import axios from "axios";
 import FormData from "form-data";
 import {v2 as cloudinary} from 'cloudinary'
 import sql from '../configs/db.js';
-import fs from 'fs';
 // Import the parser implementation directly. The package entry point runs its
 // bundled test fixture when loaded from an ES module environment.
 import pdf from 'pdf-parse/lib/pdf-parse.js';
@@ -15,11 +14,24 @@ const AI = new OpenAI({
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
 });
 
+const uploadBuffer = (buffer, options = {}) => new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(options, (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+    });
+    stream.end(buffer);
+});
+
 export const generateBlogTitles = async (req, res) => {
     try {
         const { userId } = req.auth();
-        const {prompt} = req.body;
-        const fullPrompt = `Generate 10 high-quality blog titles for the topic: "${prompt}".\n- Make them engaging and SEO-friendly\n- Return only bullet points\n- No explanations`;
+        const {prompt, topic, category} = req.body;
+        const titleTopic = prompt ?? topic;
+        if (!titleTopic?.trim()) {
+            return res.status(400).json({success: false, message: 'A topic is required.'})
+        }
+        const categoryHint = category ? ` in the ${category} category` : '';
+        const fullPrompt = `Generate 10 high-quality blog titles for the topic: "${titleTopic}"${categoryHint}.\n- Make them engaging and SEO-friendly\n- Return only bullet points\n- No explanations`;
         const plan = req.plan;
         const free_usage = req.free_usage;
 
@@ -37,7 +49,7 @@ export const generateBlogTitles = async (req, res) => {
 
 const content = response.choices[0].message.content
 
-await sql`INSERT INTO creations (user_Id, prompt, content, type) VALUES (${userId}, ${prompt}, ${content}, 'blog_title')`;
+await sql`INSERT INTO creations (user_Id, prompt, content, type) VALUES (${userId}, ${titleTopic}, ${content}, 'blog_title')`;
 
 if(plan !== 'MoonPro') {
     await clerkClient.users.updateUserMetadata(userId, {
@@ -60,6 +72,9 @@ export const generateArticle = async (req, res) => {
     try {
         const { userId } = req.auth();
         const {prompt, length} = req.body;
+        if (!prompt?.trim()) {
+            return res.status(400).json({success: false, message: 'A prompt is required.'})
+        }
         const plan = req.plan;
         const free_usage = req.free_usage;
 
@@ -104,8 +119,12 @@ res.json({success: true, content})
 export const generateImage = async (req, res) => {
     try {
         const { userId } = req.auth();
-        const {prompt, publish} = req.body;
+        const {prompt, publish, published} = req.body;
         const plan = req.plan;
+
+        if (!prompt?.trim()) {
+            return res.status(400).json({success: false, message: 'A prompt is required.'})
+        }
 
         if (plan !== 'MoonPro') {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
@@ -125,7 +144,7 @@ export const generateImage = async (req, res) => {
 
         const { secure_url } = await cloudinary.uploader.upload(base64Image)
 
-await sql`INSERT INTO creations (user_Id, prompt, content, type, publish) VALUES (${userId}, ${prompt}, ${secure_url}, 'image', ${publish ?? false})`;
+await sql`INSERT INTO creations (user_Id, prompt, content, type, publish) VALUES (${userId}, ${prompt}, ${secure_url}, 'image', ${publish ?? published ?? false})`;
 
 res.json({success: true, content: secure_url})
 
@@ -142,11 +161,15 @@ export const removeImageBackground = async (req, res) => {
         const image = req.file;
         const plan = req.plan;
 
+        if (!image) {
+            return res.status(400).json({success: false, message: 'An image is required.'})
+        }
+
         if (plan !== 'MoonPro') {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
         }
 
-        const { secure_url } = await cloudinary.uploader.upload(image.Buffer, {
+        const { secure_url } = await uploadBuffer(image.buffer, {
             transformation: [
                 {
                     effect: "background_removal",
@@ -172,11 +195,15 @@ export const removeImageObject = async (req, res) => {
         const image = req.file;
         const plan = req.plan;
 
+        if (!image || !object?.trim()) {
+            return res.status(400).json({success: false, message: 'An image and object name are required.'})
+        }
+
         if (plan !== 'MoonPro') {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
         }
 
-        const { public_id } = await cloudinary.uploader.upload(image.Buffer)
+        const { public_id } = await uploadBuffer(image.buffer)
 
         const imageUrl = cloudinary.url(public_id, {
             transformation:[{effect: `gen_remove:${object}`}],
@@ -199,6 +226,10 @@ export const reviewResume = async (req, res) => {
         const resume = req.file;
         const plan = req.plan;
 
+        if (!resume) {
+            return res.status(400).json({success: false, message: 'A resume PDF is required.'})
+        }
+
         if (plan !== 'MoonPro') {
             return res.json({success: false, message: 'This feature is available for MoonPro users only. Please upgrade to access this feature.'})
         }
@@ -207,9 +238,7 @@ export const reviewResume = async (req, res) => {
         return res.json({success: false, message: 'Resume size should be less than 5MB'})
        }
 
-       const dataBuffer = fs.readFileSync(resume.Buffer);
-
-       const pdfData = await pdf(resume.Buffer);
+       const pdfData = await pdf(resume.buffer);
 
        const prompt = `Review the following resume and provide feedback on how to improve it. Highlight any areas that need improvement and suggest specific changes. Resume content: Resume Content:\n\n${pdfData.text}`
 
